@@ -1,32 +1,35 @@
+import java.io.*;
 import java.util.*;
 
-// ===== MAIN CLASS =====
+// ==========================
+// MAIN CLASS
+// ==========================
 public class HotelBookingApp {
 
     public static void main(String[] args) {
 
-        System.out.println("Hotel Booking System (UC1 → UC11)\n");
+        System.out.println("Hotel Booking System (UC1 → UC12)\n");
 
-        // Shared resources
+        String filePath = "inventory.txt";
+
         RoomInventory inventory = new RoomInventory();
         BookingRequestQueue queue = new BookingRequestQueue();
-        RoomAllocationService allocationService = new RoomAllocationService();
-        CancellationService cancellationService = new CancellationService();
+        RoomAllocationService allocation = new RoomAllocationService();
+        CancellationService cancelService = new CancellationService();
+        FilePersistenceService persistence = new FilePersistenceService();
 
-        // ===== ADD BOOKINGS =====
+        // ===== UC12 LOAD =====
+        persistence.loadInventory(inventory, filePath);
+
+        // ===== UC5 QUEUE =====
         queue.addRequest(new Reservation("Abhi", "Single"));
         queue.addRequest(new Reservation("Subha", "Double"));
         queue.addRequest(new Reservation("Vanmathi", "Suite"));
         queue.addRequest(new Reservation("Kural", "Single"));
 
         // ===== UC11 THREADS =====
-        Thread t1 = new Thread(
-                new ConcurrentBookingProcessor(queue, inventory, allocationService, cancellationService)
-        );
-
-        Thread t2 = new Thread(
-                new ConcurrentBookingProcessor(queue, inventory, allocationService, cancellationService)
-        );
+        Thread t1 = new Thread(new ConcurrentBookingProcessor(queue, inventory, allocation, cancelService));
+        Thread t2 = new Thread(new ConcurrentBookingProcessor(queue, inventory, allocation, cancelService));
 
         t1.start();
         t2.start();
@@ -39,23 +42,74 @@ public class HotelBookingApp {
         }
 
         // ===== UC10 CANCELLATION =====
-        System.out.println("\nCancellation Demo:\n");
+        System.out.println("\nCancellation Demo:");
+        cancelService.cancelBooking("Single-1", inventory);
 
-        cancellationService.cancelBooking("Single-1", inventory);
-
-        cancellationService.showRollbackHistory();
+        cancelService.showRollbackHistory();
 
         // ===== FINAL INVENTORY =====
         System.out.println("\nFinal Inventory:");
-        Map<String, Integer> map = inventory.getRoomAvailability();
+        for (Map.Entry<String, Integer> entry : inventory.getRoomAvailability().entrySet()) {
+            System.out.println(entry.getKey() + ": " + entry.getValue());
+        }
 
-        System.out.println("Single: " + map.get("Single"));
-        System.out.println("Double: " + map.get("Double"));
-        System.out.println("Suite: " + map.get("Suite"));
+        // ===== UC12 SAVE =====
+        persistence.saveInventory(inventory, filePath);
     }
 }
 
-// ===== RESERVATION =====
+// ==========================
+// ROOM (UC2)
+// ==========================
+abstract class Room {
+    protected int beds;
+    protected int size;
+    protected double price;
+
+    public Room(int beds, int size, double price) {
+        this.beds = beds;
+        this.size = size;
+        this.price = price;
+    }
+}
+
+class SingleRoom extends Room {
+    public SingleRoom() { super(1, 250, 1500); }
+}
+
+class DoubleRoom extends Room {
+    public DoubleRoom() { super(2, 400, 2500); }
+}
+
+class SuiteRoom extends Room {
+    public SuiteRoom() { super(3, 750, 5000); }
+}
+
+// ==========================
+// INVENTORY (UC3)
+// ==========================
+class RoomInventory {
+    private Map<String, Integer> roomAvailability;
+
+    public RoomInventory() {
+        roomAvailability = new HashMap<>();
+        roomAvailability.put("Single", 5);
+        roomAvailability.put("Double", 3);
+        roomAvailability.put("Suite", 2);
+    }
+
+    public Map<String, Integer> getRoomAvailability() {
+        return roomAvailability;
+    }
+
+    public void updateAvailability(String type, int count) {
+        roomAvailability.put(type, count);
+    }
+}
+
+// ==========================
+// RESERVATION (UC5)
+// ==========================
 class Reservation {
     private String guestName;
     private String roomType;
@@ -69,23 +123,9 @@ class Reservation {
     public String getRoomType() { return roomType; }
 }
 
-// ===== INVENTORY =====
-class RoomInventory {
-    private Map<String, Integer> availability;
-
-    public RoomInventory() {
-        availability = new HashMap<>();
-        availability.put("Single", 5);
-        availability.put("Double", 3);
-        availability.put("Suite", 2);
-    }
-
-    public Map<String, Integer> getRoomAvailability() {
-        return availability;
-    }
-}
-
-// ===== QUEUE =====
+// ==========================
+// QUEUE (UC5)
+// ==========================
 class BookingRequestQueue {
     private Queue<Reservation> queue = new LinkedList<>();
 
@@ -102,15 +142,17 @@ class BookingRequestQueue {
     }
 }
 
-// ===== ALLOCATION =====
+// ==========================
+// ALLOCATION (UC6)
+// ==========================
 class RoomAllocationService {
 
     private Map<String, Integer> counter = new HashMap<>();
 
     public String allocateRoom(Reservation r, RoomInventory inventory) {
 
-        Map<String, Integer> map = inventory.getRoomAvailability();
         String type = r.getRoomType();
+        Map<String, Integer> map = inventory.getRoomAvailability();
 
         if (map.get(type) > 0) {
 
@@ -121,71 +163,74 @@ class RoomAllocationService {
 
             map.put(type, map.get(type) - 1);
 
-            System.out.println("Booking confirmed for Guest: "
-                    + r.getGuestName() + ", Room ID: " + roomId);
+            System.out.println("Booked: " + r.getGuestName() + " → " + roomId);
 
             return roomId;
         }
 
+        System.out.println("No rooms available for " + type);
         return null;
     }
 }
 
-// ===== UC10 CANCELLATION =====
+// ==========================
+// CANCELLATION (UC10)
+// ==========================
 class CancellationService {
 
-    private Stack<String> releasedRoomIds = new Stack<>();
-    private Map<String, String> reservationRoomTypeMap = new HashMap<>();
+    private Stack<String> stack = new Stack<>();
+    private Map<String, String> map = new HashMap<>();
 
-    public void registerBooking(String reservationId, String roomType) {
-        reservationRoomTypeMap.put(reservationId, roomType);
+    public void registerBooking(String id, String type) {
+        map.put(id, type);
     }
 
-    public void cancelBooking(String reservationId, RoomInventory inventory) {
+    public void cancelBooking(String id, RoomInventory inventory) {
 
-        if (!reservationRoomTypeMap.containsKey(reservationId)) {
-            System.out.println("Invalid cancellation request.");
+        if (!map.containsKey(id)) {
+            System.out.println("Invalid cancellation");
             return;
         }
 
-        String roomType = reservationRoomTypeMap.get(reservationId);
+        String type = map.get(id);
 
-        Map<String, Integer> availability = inventory.getRoomAvailability();
-        availability.put(roomType, availability.get(roomType) + 1);
+        Map<String, Integer> inv = inventory.getRoomAvailability();
+        inv.put(type, inv.get(type) + 1);
 
-        releasedRoomIds.push(reservationId);
-        reservationRoomTypeMap.remove(reservationId);
+        stack.push(id);
+        map.remove(id);
 
-        System.out.println("Booking cancelled successfully for room: " + reservationId);
+        System.out.println("Cancelled: " + id);
     }
 
     public void showRollbackHistory() {
         System.out.println("\nRollback History:");
-
-        for (int i = releasedRoomIds.size() - 1; i >= 0; i--) {
-            System.out.println(releasedRoomIds.get(i));
+        for (int i = stack.size() - 1; i >= 0; i--) {
+            System.out.println(stack.get(i));
         }
     }
 }
 
-// ===== UC11 CONCURRENT PROCESSOR =====
+// ==========================
+// CONCURRENCY (UC11)
+// ==========================
 class ConcurrentBookingProcessor implements Runnable {
 
     private BookingRequestQueue queue;
     private RoomInventory inventory;
-    private RoomAllocationService allocationService;
-    private CancellationService cancellationService;
+    private RoomAllocationService allocation;
+    private CancellationService cancel;
 
     public ConcurrentBookingProcessor(
-            BookingRequestQueue queue,
-            RoomInventory inventory,
-            RoomAllocationService allocationService,
-            CancellationService cancellationService) {
+            BookingRequestQueue q,
+            RoomInventory i,
+            RoomAllocationService a,
+            CancellationService c) {
 
-        this.queue = queue;
-        this.inventory = inventory;
-        this.allocationService = allocationService;
-        this.cancellationService = cancellationService;
+        queue = q;
+        inventory = i;
+        allocation = a;
+        cancel = c;
     }
 
     @Override
@@ -195,22 +240,65 @@ class ConcurrentBookingProcessor implements Runnable {
 
             Reservation r;
 
-            // 🔒 queue sync
             synchronized (queue) {
                 if (!queue.hasPendingRequests()) break;
                 r = queue.getNextRequest();
             }
 
-            String roomId;
+            String id;
 
-            // 🔒 inventory sync
             synchronized (inventory) {
-                roomId = allocationService.allocateRoom(r, inventory);
+                id = allocation.allocateRoom(r, inventory);
             }
 
-            if (roomId != null) {
-                cancellationService.registerBooking(roomId, r.getRoomType());
+            if (id != null) {
+                cancel.registerBooking(id, r.getRoomType());
             }
+        }
+    }
+}
+
+// ==========================
+// PERSISTENCE (UC12)
+// ==========================
+class FilePersistenceService {
+
+    public void saveInventory(RoomInventory inventory, String filePath) {
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
+
+            for (Map.Entry<String, Integer> e : inventory.getRoomAvailability().entrySet()) {
+                writer.write(e.getKey() + "=" + e.getValue());
+                writer.newLine();
+            }
+
+            System.out.println("\nInventory saved.");
+
+        } catch (IOException e) {
+            System.out.println("Save error");
+        }
+    }
+
+    public void loadInventory(RoomInventory inventory, String filePath) {
+        File file = new File(filePath);
+
+        if (!file.exists()) {
+            System.out.println("No saved data.");
+            return;
+        }
+
+        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+
+            String line;
+            while ((line = reader.readLine()) != null) {
+
+                String[] p = line.split("=");
+                inventory.updateAvailability(p[0], Integer.parseInt(p[1]));
+            }
+
+            System.out.println("Inventory restored.");
+
+        } catch (Exception e) {
+            System.out.println("Load error");
         }
     }
 }
