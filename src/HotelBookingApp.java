@@ -5,46 +5,49 @@ public class HotelBookingApp {
 
     public static void main(String[] args) {
 
-        System.out.println("Welcome to the Hotel Booking Management System\n");
+        System.out.println("Booking Validation\n");
+
+        Scanner scanner = new Scanner(System.in);
 
         RoomInventory inventory = new RoomInventory();
-
-        Room single = new SingleRoom();
-        Room doubleRoom = new DoubleRoom();
-        Room suite = new SuiteRoom();
-
-        // ===== UC4 SEARCH =====
-        RoomSearchService searchService = new RoomSearchService();
-        searchService.searchAvailableRooms(inventory, single, doubleRoom, suite);
-
-        // ===== UC5 QUEUE =====
+        ReservationValidator validator = new ReservationValidator();
         BookingRequestQueue queue = new BookingRequestQueue();
-        queue.addRequest(new Reservation("Abhi", "Single"));
-        queue.addRequest(new Reservation("Subha", "Double"));
-        queue.addRequest(new Reservation("Vanmathi", "Suite"));
 
-        // ===== UC6 ALLOCATION =====
-        RoomAllocationService allocationService = new RoomAllocationService();
+        try {
+            System.out.print("Enter guest name: ");
+            String name = scanner.nextLine();
 
-        // ===== UC8 HISTORY =====
-        BookingHistory history = new BookingHistory();
+            System.out.print("Enter room type (Single/Double/Suite): ");
+            String type = scanner.nextLine();
 
-        System.out.println("\nRoom Allocation:\n");
+            // ===== VALIDATION (UC9) =====
+            validator.validate(name, type, inventory);
 
-        while (queue.hasPendingRequests()) {
-            Reservation r = queue.getNextRequest();
-            String roomId = allocationService.allocateRoom(r, inventory);
+            // if valid → continue flow
+            Reservation r = new Reservation(name, type);
+            queue.addRequest(r);
 
-            if (roomId != null) {
-                history.addReservation(r); // store confirmed booking
+            RoomAllocationService allocationService = new RoomAllocationService();
+            BookingHistory history = new BookingHistory();
+
+            while (queue.hasPendingRequests()) {
+                Reservation res = queue.getNextRequest();
+                String roomId = allocationService.allocateRoom(res, inventory);
+
+                if (roomId != null) {
+                    history.addReservation(res);
+                }
             }
+
+            System.out.println("\nBooking History Report\n");
+            BookingReportService report = new BookingReportService();
+            report.generateReport(history);
+
+        } catch (InvalidBookingException e) {
+            System.out.println("Booking failed: " + e.getMessage());
+        } finally {
+            scanner.close();
         }
-
-        // ===== UC8 REPORT =====
-        System.out.println("\nBooking History and Reporting\n");
-
-        BookingReportService reportService = new BookingReportService();
-        reportService.generateReport(history);
     }
 }
 
@@ -58,12 +61,6 @@ abstract class Room {
         numberOfBeds = beds;
         squareFeet = size;
         pricePerNight = price;
-    }
-
-    public void displayRoomDetails() {
-        System.out.println("Beds: " + numberOfBeds);
-        System.out.println("Size: " + squareFeet + " sqft");
-        System.out.println("Price per night: " + pricePerNight);
     }
 }
 
@@ -93,42 +90,6 @@ class RoomInventory {
 
     public Map<String, Integer> getRoomAvailability() {
         return availability;
-    }
-
-    public void updateAvailability(String type, int count) {
-        availability.put(type, count);
-    }
-}
-
-// ===== SEARCH =====
-class RoomSearchService {
-
-    public void searchAvailableRooms(RoomInventory inventory,
-                                     Room single,
-                                     Room doubleRoom,
-                                     Room suite) {
-
-        Map<String, Integer> map = inventory.getRoomAvailability();
-
-        System.out.println("Room Search\n");
-
-        if (map.get("Single") > 0) {
-            System.out.println("Single Room:");
-            single.displayRoomDetails();
-            System.out.println("Available: " + map.get("Single") + "\n");
-        }
-
-        if (map.get("Double") > 0) {
-            System.out.println("Double Room:");
-            doubleRoom.displayRoomDetails();
-            System.out.println("Available: " + map.get("Double") + "\n");
-        }
-
-        if (map.get("Suite") > 0) {
-            System.out.println("Suite Room:");
-            suite.displayRoomDetails();
-            System.out.println("Available: " + map.get("Suite"));
-        }
     }
 }
 
@@ -167,64 +128,43 @@ class BookingRequestQueue {
 // ===== ALLOCATION =====
 class RoomAllocationService {
 
-    private Set<String> allocatedIds = new HashSet<>();
-    private Map<String, Integer> counters = new HashMap<>();
+    private Map<String, Integer> counter = new HashMap<>();
 
     public String allocateRoom(Reservation r, RoomInventory inventory) {
 
-        String type = r.getRoomType();
         Map<String, Integer> map = inventory.getRoomAvailability();
+        String type = r.getRoomType();
 
         if (map.get(type) > 0) {
 
-            String id = generateRoomId(type);
+            int count = counter.getOrDefault(type, 0) + 1;
+            counter.put(type, count);
 
-            allocatedIds.add(id);
+            String roomId = type + "-" + count;
+
             map.put(type, map.get(type) - 1);
 
             System.out.println("Booking confirmed for Guest: "
-                    + r.getGuestName() + ", Room ID: " + id);
+                    + r.getGuestName() + ", Room ID: " + roomId);
 
-            return id;
-        } else {
-            System.out.println("Booking failed for " + r.getGuestName());
-            return null;
+            return roomId;
         }
-    }
 
-    private String generateRoomId(String type) {
-        int count = counters.getOrDefault(type, 0) + 1;
-        counters.put(type, count);
-        return type + "-" + count;
+        return null;
     }
 }
 
-// ===== UC7 ADD-ON (optional kept) =====
-class AddOnService {
-    String name;
-    double price;
-
-    public AddOnService(String name, double price) {
-        this.name = name;
-        this.price = price;
-    }
-}
-
-// ===== UC8 BOOKING HISTORY =====
+// ===== UC8 HISTORY =====
 class BookingHistory {
 
-    private List<Reservation> confirmedReservations;
+    private List<Reservation> list = new ArrayList<>();
 
-    public BookingHistory() {
-        confirmedReservations = new ArrayList<>();
-    }
-
-    public void addReservation(Reservation reservation) {
-        confirmedReservations.add(reservation);
+    public void addReservation(Reservation r) {
+        list.add(r);
     }
 
     public List<Reservation> getConfirmedReservations() {
-        return confirmedReservations;
+        return list;
     }
 }
 
@@ -233,11 +173,48 @@ class BookingReportService {
 
     public void generateReport(BookingHistory history) {
 
-        System.out.println("Booking History Report\n");
-
         for (Reservation r : history.getConfirmedReservations()) {
             System.out.println("Guest: " + r.getGuestName()
                     + ", Room Type: " + r.getRoomType());
+        }
+    }
+}
+
+// ===== UC9 EXCEPTION =====
+class InvalidBookingException extends Exception {
+
+    public InvalidBookingException(String message) {
+        super(message);
+    }
+}
+
+// ===== UC9 VALIDATOR =====
+class ReservationValidator {
+
+    public void validate(String guestName,
+                         String roomType,
+                         RoomInventory inventory)
+            throws InvalidBookingException {
+
+        if (guestName == null || guestName.trim().isEmpty()) {
+            throw new InvalidBookingException("Guest name cannot be empty.");
+        }
+
+        if (!roomType.equals("Single") &&
+            !roomType.equals("Double") &&
+            !roomType.equals("Suite")) {
+
+            throw new InvalidBookingException("Invalid room type selected.");
+        }
+
+        Map<String, Integer> availability = inventory.getRoomAvailability();
+
+        if (!availability.containsKey(roomType)) {
+            throw new InvalidBookingException("Room type does not exist.");
+        }
+
+        if (availability.get(roomType) <= 0) {
+            throw new InvalidBookingException("No rooms available.");
         }
     }
 }
