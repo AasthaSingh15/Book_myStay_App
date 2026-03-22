@@ -1,33 +1,39 @@
+import java.util.HashMap;
+import java.util.Map;
+
 public class HotelBookingApp {
 
     public static void main(String[] args) {
 
+        // ===== UC1 =====
         System.out.println("Welcome to the Hotel Booking Management System");
         System.out.println("Version: 1.0");
         System.out.println("System initialized successfully\n");
+
+        // ===== UC3 (Centralized Inventory) =====
+        System.out.println("Hotel Room Inventory Status\n");
 
         Room single = new SingleRoom();
         Room doubleRoom = new DoubleRoom();
         Room suite = new SuiteRoom();
 
-        int singleAvailable = 5;
-        int doubleAvailable = 3;
-        int suiteAvailable = 2;
+        RoomInventory inventory = new RoomInventory();
 
         System.out.println("Single Room:");
         single.displayRoomDetails();
-        System.out.println("Available: " + singleAvailable + "\n");
+        System.out.println("Available Rooms: " + inventory.getRoomAvailability().get("Single") + "\n");
 
         System.out.println("Double Room:");
         doubleRoom.displayRoomDetails();
-        System.out.println("Available: " + doubleAvailable + "\n");
+        System.out.println("Available Rooms: " + inventory.getRoomAvailability().get("Double") + "\n");
 
         System.out.println("Suite Room:");
         suite.displayRoomDetails();
-        System.out.println("Available: " + suiteAvailable);
+        System.out.println("Available Rooms: " + inventory.getRoomAvailability().get("Suite"));
     }
 }
 
+// ===== ROOM (UC2) =====
 abstract class Room {
     protected int numberOfBeds;
     protected int squareFeet;
@@ -46,6 +52,7 @@ abstract class Room {
     }
 }
 
+// ===== ROOM TYPES =====
 class SingleRoom extends Room {
     public SingleRoom() {
         super(1, 250, 1500);
@@ -61,5 +68,30 @@ class DoubleRoom extends Room {
 class SuiteRoom extends Room {
     public SuiteRoom() {
         super(3, 750, 5000);
+    }
+}
+
+// ===== UC3 INVENTORY =====
+class RoomInventory {
+
+    private Map<String, Integer> roomAvailability;
+
+    public RoomInventory() {
+        roomAvailability = new HashMap<>();
+        initializeInventory();
+    }
+
+    private void initializeInventory() {
+        roomAvailability.put("Single", 5);
+        roomAvailability.put("Double", 3);
+        roomAvailability.put("Suite", 2);
+    }
+
+    public Map<String, Integer> getRoomAvailability() {
+        return roomAvailability;
+    }
+
+    public void updateAvailability(String roomType, int count) {
+        roomAvailability.put(roomType, count);
     }
 }
