@@ -5,49 +5,45 @@ public class HotelBookingApp {
 
     public static void main(String[] args) {
 
-        System.out.println("Booking Validation\n");
-
-        Scanner scanner = new Scanner(System.in);
+        System.out.println("Booking Cancellation\n");
 
         RoomInventory inventory = new RoomInventory();
-        ReservationValidator validator = new ReservationValidator();
         BookingRequestQueue queue = new BookingRequestQueue();
 
-        try {
-            System.out.print("Enter guest name: ");
-            String name = scanner.nextLine();
+        queue.addRequest(new Reservation("Abhi", "Single"));
+        queue.addRequest(new Reservation("Subha", "Double"));
+        queue.addRequest(new Reservation("Vanmathi", "Suite"));
 
-            System.out.print("Enter room type (Single/Double/Suite): ");
-            String type = scanner.nextLine();
+        RoomAllocationService allocationService = new RoomAllocationService();
+        CancellationService cancellationService = new CancellationService();
 
-            // ===== VALIDATION (UC9) =====
-            validator.validate(name, type, inventory);
+        List<String> reservationIds = new ArrayList<>();
 
-            // if valid → continue flow
-            Reservation r = new Reservation(name, type);
-            queue.addRequest(r);
+        // ===== ALLOCATION =====
+        while (queue.hasPendingRequests()) {
+            Reservation r = queue.getNextRequest();
+            String roomId = allocationService.allocateRoom(r, inventory);
 
-            RoomAllocationService allocationService = new RoomAllocationService();
-            BookingHistory history = new BookingHistory();
+            if (roomId != null) {
+                reservationIds.add(roomId);
 
-            while (queue.hasPendingRequests()) {
-                Reservation res = queue.getNextRequest();
-                String roomId = allocationService.allocateRoom(res, inventory);
-
-                if (roomId != null) {
-                    history.addReservation(res);
-                }
+                // register booking for cancellation
+                cancellationService.registerBooking(roomId, r.getRoomType());
             }
-
-            System.out.println("\nBooking History Report\n");
-            BookingReportService report = new BookingReportService();
-            report.generateReport(history);
-
-        } catch (InvalidBookingException e) {
-            System.out.println("Booking failed: " + e.getMessage());
-        } finally {
-            scanner.close();
         }
+
+        // ===== CANCELLATION =====
+        if (!reservationIds.isEmpty()) {
+            String cancelId = reservationIds.get(0);
+
+            cancellationService.cancelBooking(cancelId, inventory);
+        }
+
+        // ===== SHOW ROLLBACK =====
+        cancellationService.showRollbackHistory();
+
+        System.out.println("\nUpdated Single Room Availability: "
+                + inventory.getRoomAvailability().get("Single"));
     }
 }
 
@@ -154,67 +150,49 @@ class RoomAllocationService {
     }
 }
 
-// ===== UC8 HISTORY =====
-class BookingHistory {
+// ===== UC10 CANCELLATION =====
+class CancellationService {
 
-    private List<Reservation> list = new ArrayList<>();
+    private Stack<String> releasedRoomIds;
+    private Map<String, String> reservationRoomTypeMap;
 
-    public void addReservation(Reservation r) {
-        list.add(r);
+    public CancellationService() {
+        releasedRoomIds = new Stack<>();
+        reservationRoomTypeMap = new HashMap<>();
     }
 
-    public List<Reservation> getConfirmedReservations() {
-        return list;
+    public void registerBooking(String reservationId, String roomType) {
+        reservationRoomTypeMap.put(reservationId, roomType);
     }
-}
 
-// ===== UC8 REPORT =====
-class BookingReportService {
+    public void cancelBooking(String reservationId, RoomInventory inventory) {
 
-    public void generateReport(BookingHistory history) {
-
-        for (Reservation r : history.getConfirmedReservations()) {
-            System.out.println("Guest: " + r.getGuestName()
-                    + ", Room Type: " + r.getRoomType());
-        }
-    }
-}
-
-// ===== UC9 EXCEPTION =====
-class InvalidBookingException extends Exception {
-
-    public InvalidBookingException(String message) {
-        super(message);
-    }
-}
-
-// ===== UC9 VALIDATOR =====
-class ReservationValidator {
-
-    public void validate(String guestName,
-                         String roomType,
-                         RoomInventory inventory)
-            throws InvalidBookingException {
-
-        if (guestName == null || guestName.trim().isEmpty()) {
-            throw new InvalidBookingException("Guest name cannot be empty.");
+        if (!reservationRoomTypeMap.containsKey(reservationId)) {
+            System.out.println("Invalid cancellation request.");
+            return;
         }
 
-        if (!roomType.equals("Single") &&
-            !roomType.equals("Double") &&
-            !roomType.equals("Suite")) {
+        String roomType = reservationRoomTypeMap.get(reservationId);
 
-            throw new InvalidBookingException("Invalid room type selected.");
-        }
-
+        // restore inventory
         Map<String, Integer> availability = inventory.getRoomAvailability();
+        availability.put(roomType, availability.get(roomType) + 1);
 
-        if (!availability.containsKey(roomType)) {
-            throw new InvalidBookingException("Room type does not exist.");
-        }
+        // track rollback
+        releasedRoomIds.push(reservationId);
 
-        if (availability.get(roomType) <= 0) {
-            throw new InvalidBookingException("No rooms available.");
+        // remove from active bookings
+        reservationRoomTypeMap.remove(reservationId);
+
+        System.out.println("Booking cancelled successfully. Inventory restored for room type: " + roomType);
+    }
+
+    public void showRollbackHistory() {
+
+        System.out.println("\nRollback History (Most Recent First):");
+
+        for (int i = releasedRoomIds.size() - 1; i >= 0; i--) {
+            System.out.println("Released Reservation ID: " + releasedRoomIds.get(i));
         }
     }
 }
