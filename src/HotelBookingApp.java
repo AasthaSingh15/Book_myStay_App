@@ -1,6 +1,6 @@
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
+// ===== MAIN CLASS =====
 public class HotelBookingApp {
 
     public static void main(String[] args) {
@@ -10,30 +10,42 @@ public class HotelBookingApp {
         System.out.println("Version: 1.0");
         System.out.println("System initialized successfully\n");
 
-        // ===== UC3 (Centralized Inventory) =====
-        System.out.println("Hotel Room Inventory Status\n");
+        // ===== UC3 INVENTORY =====
+        RoomInventory inventory = new RoomInventory();
 
+        // ===== UC2 ROOM OBJECTS =====
         Room single = new SingleRoom();
         Room doubleRoom = new DoubleRoom();
         Room suite = new SuiteRoom();
 
-        RoomInventory inventory = new RoomInventory();
+        // ===== UC4 SEARCH =====
+        System.out.println("Room Search\n");
 
-        System.out.println("Single Room:");
-        single.displayRoomDetails();
-        System.out.println("Available Rooms: " + inventory.getRoomAvailability().get("Single") + "\n");
+        RoomSearchService searchService = new RoomSearchService();
+        searchService.searchAvailableRooms(inventory, single, doubleRoom, suite);
 
-        System.out.println("Double Room:");
-        doubleRoom.displayRoomDetails();
-        System.out.println("Available Rooms: " + inventory.getRoomAvailability().get("Double") + "\n");
+        // ===== UC5 BOOKING REQUEST QUEUE =====
+        System.out.println("\nBooking Request Queue\n");
 
-        System.out.println("Suite Room:");
-        suite.displayRoomDetails();
-        System.out.println("Available Rooms: " + inventory.getRoomAvailability().get("Suite"));
+        BookingRequestQueue bookingQueue = new BookingRequestQueue();
+
+        Reservation r1 = new Reservation("Abhi", "Single");
+        Reservation r2 = new Reservation("Subha", "Double");
+        Reservation r3 = new Reservation("Vanmathi", "Suite");
+
+        bookingQueue.addRequest(r1);
+        bookingQueue.addRequest(r2);
+        bookingQueue.addRequest(r3);
+
+        while (bookingQueue.hasPendingRequests()) {
+            Reservation r = bookingQueue.getNextRequest();
+            System.out.println("Processing booking for Guest: "
+                    + r.getGuestName() + ", Room Type: " + r.getRoomType());
+        }
     }
 }
 
-// ===== ROOM (UC2) =====
+// ===== UC2 ROOM =====
 abstract class Room {
     protected int numberOfBeds;
     protected int squareFeet;
@@ -93,5 +105,77 @@ class RoomInventory {
 
     public void updateAvailability(String roomType, int count) {
         roomAvailability.put(roomType, count);
+    }
+}
+
+// ===== UC4 SEARCH SERVICE =====
+class RoomSearchService {
+
+    public void searchAvailableRooms(
+            RoomInventory inventory,
+            Room singleRoom,
+            Room doubleRoom,
+            Room suiteRoom) {
+
+        Map<String, Integer> availability = inventory.getRoomAvailability();
+
+        if (availability.get("Single") > 0) {
+            System.out.println("Single Room:");
+            singleRoom.displayRoomDetails();
+            System.out.println("Available: " + availability.get("Single") + "\n");
+        }
+
+        if (availability.get("Double") > 0) {
+            System.out.println("Double Room:");
+            doubleRoom.displayRoomDetails();
+            System.out.println("Available: " + availability.get("Double") + "\n");
+        }
+
+        if (availability.get("Suite") > 0) {
+            System.out.println("Suite Room:");
+            suiteRoom.displayRoomDetails();
+            System.out.println("Available: " + availability.get("Suite"));
+        }
+    }
+}
+
+// ===== UC5 RESERVATION =====
+class Reservation {
+    private String guestName;
+    private String roomType;
+
+    public Reservation(String guestName, String roomType) {
+        this.guestName = guestName;
+        this.roomType = roomType;
+    }
+
+    public String getGuestName() {
+        return guestName;
+    }
+
+    public String getRoomType() {
+        return roomType;
+    }
+}
+
+// ===== UC5 BOOKING QUEUE =====
+class BookingRequestQueue {
+
+    private Queue<Reservation> requestQueue;
+
+    public BookingRequestQueue() {
+        requestQueue = new LinkedList<>();
+    }
+
+    public void addRequest(Reservation reservation) {
+        requestQueue.offer(reservation);
+    }
+
+    public Reservation getNextRequest() {
+        return requestQueue.poll();
+    }
+
+    public boolean hasPendingRequests() {
+        return !requestQueue.isEmpty();
     }
 }
