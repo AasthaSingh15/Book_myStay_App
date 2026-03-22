@@ -31,16 +31,37 @@ public class HotelBookingApp {
         bookingQueue.addRequest(new Reservation("Subha", "Double"));
         bookingQueue.addRequest(new Reservation("Vanmathi", "Suite"));
         bookingQueue.addRequest(new Reservation("Kumar", "Single"));
-        bookingQueue.addRequest(new Reservation("Ravi", "Single")); // overflow
+        bookingQueue.addRequest(new Reservation("Ravi", "Single"));
 
         // ===== UC6 ALLOCATION =====
         System.out.println("\nRoom Allocation & Confirmation\n");
 
         RoomAllocationService allocationService = new RoomAllocationService();
 
+        List<String> reservationIds = new ArrayList<>();
+
         while (bookingQueue.hasPendingRequests()) {
             Reservation r = bookingQueue.getNextRequest();
-            allocationService.allocateRoom(r, inventory);
+            String roomId = allocationService.allocateRoom(r, inventory);
+
+            if (roomId != null) {
+                reservationIds.add(roomId);
+            }
+        }
+
+        // ===== UC7 ADD-ON SERVICES =====
+        System.out.println("\nAdd-On Services\n");
+
+        AddOnServiceManager serviceManager = new AddOnServiceManager();
+
+        if (!reservationIds.isEmpty()) {
+            String reservationId = reservationIds.get(0);
+
+            serviceManager.addService(reservationId, new AddOnService("Breakfast", 200));
+            serviceManager.addService(reservationId, new AddOnService("Airport Pickup", 500));
+            serviceManager.addService(reservationId, new AddOnService("Extra Bed", 300));
+
+            serviceManager.displayServices(reservationId);
         }
     }
 }
@@ -185,13 +206,15 @@ class RoomAllocationService {
 
     private Set<String> allocatedRoomIds;
     private Map<String, Set<String>> assignedRoomsByType;
+    private Map<String, Integer> counters;
 
     public RoomAllocationService() {
         allocatedRoomIds = new HashSet<>();
         assignedRoomsByType = new HashMap<>();
+        counters = new HashMap<>();
     }
 
-    public void allocateRoom(Reservation reservation, RoomInventory inventory) {
+    public String allocateRoom(Reservation reservation, RoomInventory inventory) {
 
         String roomType = reservation.getRoomType();
         Map<String, Integer> availability = inventory.getRoomAvailability();
@@ -208,28 +231,80 @@ class RoomAllocationService {
 
             availability.put(roomType, availability.get(roomType) - 1);
 
-            System.out.println("Booking CONFIRMED for " + reservation.getGuestName());
-            System.out.println("Room Type: " + roomType);
-            System.out.println("Allocated Room ID: " + roomId);
-            System.out.println("Remaining " + roomType + " rooms: "
-                    + availability.get(roomType) + "\n");
+            System.out.println("Booking confirmed for Guest: "
+                    + reservation.getGuestName() + ", Room ID: " + roomId);
+
+            return roomId;
 
         } else {
 
-            System.out.println("Booking FAILED for " + reservation.getGuestName());
-            System.out.println("Room Type: " + roomType);
-            System.out.println("No rooms available\n");
+            System.out.println("Booking failed for Guest: "
+                    + reservation.getGuestName() + " (No rooms available)");
+
+            return null;
         }
     }
 
     private String generateRoomId(String roomType) {
-        String prefix = roomType.substring(0, 2).toUpperCase();
-        String roomId;
+        int count = counters.getOrDefault(roomType, 0) + 1;
+        counters.put(roomType, count);
+        return roomType + "-" + count;
+    }
+}
 
-        do {
-            roomId = prefix + (int)(Math.random() * 1000);
-        } while (allocatedRoomIds.contains(roomId));
+// ===== UC7 SERVICE =====
+class AddOnService {
+    private String serviceName;
+    private double price;
 
-        return roomId;
+    public AddOnService(String serviceName, double price) {
+        this.serviceName = serviceName;
+        this.price = price;
+    }
+
+    public String getServiceName() {
+        return serviceName;
+    }
+
+    public double getPrice() {
+        return price;
+    }
+}
+
+// ===== UC7 SERVICE MANAGER =====
+class AddOnServiceManager {
+
+    private Map<String, List<AddOnService>> servicesByReservation;
+
+    public AddOnServiceManager() {
+        servicesByReservation = new HashMap<>();
+    }
+
+    public void addService(String reservationId, AddOnService service) {
+
+        servicesByReservation
+                .computeIfAbsent(reservationId, k -> new ArrayList<>())
+                .add(service);
+    }
+
+    public void displayServices(String reservationId) {
+
+        List<AddOnService> services = servicesByReservation.get(reservationId);
+
+        if (services == null || services.isEmpty()) {
+            System.out.println("No add-on services selected.");
+            return;
+        }
+
+        double total = 0;
+
+        System.out.println("Selected Services:");
+
+        for (AddOnService s : services) {
+            System.out.println("- " + s.getServiceName() + " : ₹" + s.getPrice());
+            total += s.getPrice();
+        }
+
+        System.out.println("Total Add-on Cost: ₹" + total);
     }
 }
